@@ -1,5 +1,7 @@
 <?php
-// This file handles all requests on Vercel
+// Disable HTML error output – we always return JSON for API calls
+ini_set('display_errors', 0);
+error_reporting(E_ALL); // Keep logging errors, but don't display
 
 // Enable CORS
 header('Access-Control-Allow-Origin: *');
@@ -12,13 +14,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-// Your original code starts here
+// ------------------------------------------------------------------
+// API endpoints
+// ------------------------------------------------------------------
 $num_api_url = "https://num.proportalxc.workers.dev/";
 $rc_api_url = "https://org.proportalxc.workers.dev/";
 $ig_api_url = "https://instagram-api-ashy.vercel.app/api/ig-profile.php";
 $adhar_api_url = "https://mu-beige-six.vercel.app/api/adhar/";
 
-// Helper function to make API calls with better error handling
+// ------------------------------------------------------------------
+// Enhanced API caller with JSON cleaning and logging
+// ------------------------------------------------------------------
 function callAPI($url, $timeout = 15) {
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
@@ -37,32 +43,32 @@ function callAPI($url, $timeout = 15) {
         return ['error' => 'CURL Error: ' . $curlError, 'http_code' => 500];
     }
     
-    // Try to clean the response - remove any non-JSON content before or after
-    $response = trim($response);
+    // --- Clean the response ---
+    // 1. Remove UTF-8 BOM
+    $response = preg_replace('/^\xEF\xBB\xBF/', '', $response);
+    // 2. Convert to valid UTF-8 (discard invalid sequences)
+    $response = mb_convert_encoding($response, 'UTF-8', 'UTF-8');
     
-    // Find where JSON starts (first { or [)
+    // 3. Try to extract JSON object/array if surrounded by other text
     $jsonStart = strpos($response, '{');
-    if ($jsonStart === false) {
-        $jsonStart = strpos($response, '[');
-    }
-    
-    // Find where JSON ends (last } or ])
+    if ($jsonStart === false) $jsonStart = strpos($response, '[');
     $jsonEnd = strrpos($response, '}');
-    if ($jsonEnd === false) {
-        $jsonEnd = strrpos($response, ']');
-    }
+    if ($jsonEnd === false) $jsonEnd = strrpos($response, ']');
     
     if ($jsonStart !== false && $jsonEnd !== false && $jsonEnd > $jsonStart) {
         $response = substr($response, $jsonStart, $jsonEnd - $jsonStart + 1);
     }
     
-    // Validate JSON
+    // 4. Validate JSON
     json_decode($response);
     if (json_last_error() !== JSON_ERROR_NONE) {
+        // Optional: log the problematic response for debugging
+        // file_put_contents(__DIR__ . '/api_error.log', date('Y-m-d H:i:s') . " URL: $url\nINVALID JSON:\n$response\n\n", FILE_APPEND);
+        
         return [
             'error' => 'Invalid JSON response from API',
             'http_code' => $httpCode,
-            'raw_response' => substr($response, 0, 500) // First 500 chars for debugging
+            'raw_sample' => substr($response, 0, 500) // first 500 chars for debugging
         ];
     }
     
@@ -73,57 +79,84 @@ function callAPI($url, $timeout = 15) {
     ];
 }
 
+// ------------------------------------------------------------------
 // Handle AJAX requests
-if(isset($_GET['type'])) {
+// ------------------------------------------------------------------
+if (isset($_GET['type'])) {
     header('Content-Type: application/json');
     
-    if($_GET['type'] == 'number' && isset($_GET['mobile'])) {
+    // ---------- Number Info ----------
+    if ($_GET['type'] == 'number' && isset($_GET['mobile'])) {
         $mobile = urlencode($_GET['mobile']);
         $result = callAPI($num_api_url . "?mobile=" . $mobile);
         
         if (isset($result['error'])) {
-            echo json_encode(['success' => false, 'error' => $result['error']]);
+            // Return error with optional debug info (remove raw_sample in production)
+            echo json_encode([
+                'success' => false,
+                'error' => $result['error'],
+                'debug' => isset($result['raw_sample']) ? $result['raw_sample'] : null
+            ]);
         } else {
             echo $result['data'];
         }
         exit;
     }
     
-    if($_GET['type'] == 'rc' && isset($_GET['rc'])) {
+    // ---------- RC Info ----------
+    if ($_GET['type'] == 'rc' && isset($_GET['rc'])) {
         $rc = strtolower(urlencode($_GET['rc']));
         $result = callAPI($rc_api_url . "?rc=" . $rc);
         
         if (isset($result['error'])) {
-            echo json_encode(['success' => false, 'error' => $result['error']]);
+            echo json_encode([
+                'success' => false,
+                'error' => $result['error'],
+                'debug' => isset($result['raw_sample']) ? $result['raw_sample'] : null
+            ]);
         } else {
             echo $result['data'];
         }
         exit;
     }
     
-    if($_GET['type'] == 'ig' && isset($_GET['username'])) {
+    // ---------- Instagram ----------
+    if ($_GET['type'] == 'ig' && isset($_GET['username'])) {
         $username = urlencode($_GET['username']);
         $result = callAPI($ig_api_url . "?username=" . $username);
         
         if (isset($result['error'])) {
-            echo json_encode(['success' => false, 'error' => $result['error']]);
+            echo json_encode([
+                'success' => false,
+                'error' => $result['error'],
+                'debug' => isset($result['raw_sample']) ? $result['raw_sample'] : null
+            ]);
         } else {
             echo $result['data'];
         }
         exit;
     }
     
-    if($_GET['type'] == 'adhar' && isset($_GET['number'])) {
+    // ---------- Aadhar ----------
+    if ($_GET['type'] == 'adhar' && isset($_GET['number'])) {
         $number = urlencode($_GET['number']);
         $result = callAPI($adhar_api_url . $number);
         
         if (isset($result['error'])) {
-            echo json_encode(['success' => false, 'error' => $result['error']]);
+            echo json_encode([
+                'success' => false,
+                'error' => $result['error'],
+                'debug' => isset($result['raw_sample']) ? $result['raw_sample'] : null
+            ]);
         } else {
             echo $result['data'];
         }
         exit;
     }
+    
+    // If type is unknown
+    echo json_encode(['success' => false, 'error' => 'Invalid request type']);
+    exit;
 }
 ?>
 <!DOCTYPE html>
@@ -134,6 +167,7 @@ if(isset($_GET['type'])) {
     <title>⚡ Osint Tool</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
+        /* ... (all your existing CSS, unchanged) ... */
         * {
             margin: 0;
             padding: 0;

@@ -1,24 +1,10 @@
 <?php
 // This file handles all requests on Vercel
 
-// Enable error reporting for debugging (remove in production)
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-// Disable deprecation warnings for PHP 8.5+
-set_error_handler(function($errno, $errstr) {
-    // Ignore deprecation warnings about curl_close
-    if (strpos($errstr, 'curl_close') !== false) {
-        return true;
-    }
-    return false;
-}, E_DEPRECATED);
-
 // Enable CORS
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
-header('Content-Type: application/json');
 
 // Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -26,13 +12,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-// API Endpoints - Check if these are still valid
+// Your original code starts here
 $num_api_url = "https://num.proportalxc.workers.dev/";
 $rc_api_url = "https://org.proportalxc.workers.dev/";
 $ig_api_url = "https://instagram-api-ashy.vercel.app/api/ig-profile.php";
 $adhar_api_url = "https://mu-beige-six.vercel.app/api/adhar/";
 
-// Helper function to make API calls with better error handling (no curl_close issues)
+// Helper function to make API calls with better error handling
 function callAPI($url, $timeout = 15) {
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
@@ -45,120 +31,58 @@ function callAPI($url, $timeout = 15) {
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlError = curl_error($ch);
-    $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    curl_close($ch);
     
-    // For PHP 8.5+, curl_close is optional - we can just let it go out of scope
-    // But to avoid deprecation warnings, we'll use a try-finally pattern
-    try {
-        if ($curlError) {
-            return [
-                'success' => false,
-                'error' => 'CURL Error: ' . $curlError,
-                'http_code' => 500
-            ];
-        }
-        
-        // Check if response is empty
-        if (empty($response)) {
-            return [
-                'success' => false,
-                'error' => 'Empty response from API',
-                'http_code' => $httpCode
-            ];
-        }
-        
-        // Check if it's HTML (error page)
-        if (strpos($response, '<!DOCTYPE') !== false || strpos($response, '<html') !== false) {
-            return [
-                'success' => false,
-                'error' => 'API returned HTML instead of JSON (possible API down or requires authentication)',
-                'http_code' => $httpCode,
-                'content_type' => $contentType
-            ];
-        }
-        
-        // Try to clean the response - remove any non-JSON content before or after
-        $response = trim($response);
-        
-        // Try to extract JSON if there's extra text
-        $jsonMatch = [];
-        if (preg_match('/\{.*\}/s', $response, $jsonMatch)) {
-            $response = $jsonMatch[0];
-        } elseif (preg_match('/\[.*\]/s', $response, $jsonMatch)) {
-            $response = $jsonMatch[0];
-        }
-        
-        // Validate JSON
-        json_decode($response);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return [
-                'success' => false,
-                'error' => 'Invalid JSON response from API',
-                'json_error' => json_last_error_msg(),
-                'http_code' => $httpCode,
-                'raw_response_preview' => substr($response, 0, 200) // First 200 chars for debugging
-            ];
-        }
-        
-        return [
-            'success' => true,
-            'data' => $response,
-            'http_code' => $httpCode
-        ];
-    } finally {
-        // Clean up curl handle - this won't trigger deprecation warning in a finally block
-        if (function_exists('curl_close')) {
-            @curl_close($ch);
-        }
+    if ($curlError) {
+        return ['error' => 'CURL Error: ' . $curlError, 'http_code' => 500];
     }
+    
+    // Try to clean the response - remove any non-JSON content before or after
+    $response = trim($response);
+    
+    // Find where JSON starts (first { or [)
+    $jsonStart = strpos($response, '{');
+    if ($jsonStart === false) {
+        $jsonStart = strpos($response, '[');
+    }
+    
+    // Find where JSON ends (last } or ])
+    $jsonEnd = strrpos($response, '}');
+    if ($jsonEnd === false) {
+        $jsonEnd = strrpos($response, ']');
+    }
+    
+    if ($jsonStart !== false && $jsonEnd !== false && $jsonEnd > $jsonStart) {
+        $response = substr($response, $jsonStart, $jsonEnd - $jsonStart + 1);
+    }
+    
+    // Validate JSON
+    json_decode($response);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return [
+            'error' => 'Invalid JSON response from API',
+            'http_code' => $httpCode,
+            'raw_response' => substr($response, 0, 500) // First 500 chars for debugging
+        ];
+    }
+    
+    return [
+        'success' => true,
+        'data' => $response,
+        'http_code' => $httpCode
+    ];
 }
 
 // Handle AJAX requests
 if(isset($_GET['type'])) {
+    header('Content-Type: application/json');
     
     if($_GET['type'] == 'number' && isset($_GET['mobile'])) {
         $mobile = urlencode($_GET['mobile']);
         $result = callAPI($num_api_url . "?mobile=" . $mobile);
         
-        if (!$result['success']) {
-            // Return sample/demo data for testing
-            if ($_GET['mobile'] == '8123407093') {
-                echo json_encode([
-                    'success' => true,
-                    'result' => [
-                        'search_time' => '0.35s',
-                        'results' => [
-                            [
-                                'mobile' => '8123407093',
-                                'name' => 'KEERTHU POOJARY',
-                                'fname' => 'SURESH POOJARY',
-                                'address' => 'MANGALORE, KARNATAKA',
-                                'alt' => '9876543210',
-                                'circle' => 'KARNATAKA',
-                                'email' => 'keerthu@example.com',
-                                'id' => 'TEL123456'
-                            ],
-                            [
-                                'mobile' => '9876543210',
-                                'name' => 'SURESH POOJARY',
-                                'fname' => 'RAMESH POOJARY',
-                                'address' => 'MANGALORE, KARNATAKA',
-                                'alt' => '8123407093',
-                                'circle' => 'KARNATAKA',
-                                'email' => 'suresh@example.com',
-                                'id' => 'TEL789012'
-                            ]
-                        ]
-                    ]
-                ]);
-                exit;
-            }
-            
-            echo json_encode([
-                'success' => false,
-                'error' => $result['error'],
-                'debug' => $result
-            ]);
+        if (isset($result['error'])) {
+            echo json_encode(['success' => false, 'error' => $result['error']]);
         } else {
             echo $result['data'];
         }
@@ -169,52 +93,8 @@ if(isset($_GET['type'])) {
         $rc = strtolower(urlencode($_GET['rc']));
         $result = callAPI($rc_api_url . "?rc=" . $rc);
         
-        if (!$result['success']) {
-            // Return sample RC data for testing
-            if (strtolower($_GET['rc']) == 'ka19hv4003') {
-                echo json_encode([
-                    'data' => [
-                        'registration_identity_matrix' => [
-                            'official_registration_id' => 'KA19HV4003',
-                            'chassis_number' => 'MA3HYDEM12345',
-                            'engine_number' => 'G4FCHYDEM67890'
-                        ],
-                        'ownership_profile_analytics' => [
-                            'owner_name' => 'KEERTHU POOJARY',
-                            'father_name' => 'SURESH POOJARY',
-                            'permanent_address' => 'MANGALORE, KARNATAKA - 575001',
-                            'registration_date' => '15-03-2023'
-                        ],
-                        'technical_structural_blueprint' => [
-                            'vehicle_class' => 'MOTOR CAR',
-                            'fuel_type' => 'PETROL',
-                            'cubic_capacity' => '1197 CC',
-                            'manufacturer_name' => 'HYUNDAI',
-                            'model' => 'I20 SPORTZ',
-                            'manufacturing_year' => '2023',
-                            'body_type' => 'HATCHBACK',
-                            'color' => 'WHITE'
-                        ],
-                        'insurance_security_audit_report' => [
-                            'insurance_company' => 'BAJAJ ALLIANZ',
-                            'policy_number' => 'INSHYDEM123456789',
-                            'valid_from' => '15-03-2023',
-                            'valid_upto' => '14-03-2024'
-                        ],
-                        'lifecycle_compliance_timeline' => [
-                            'registration_valid_upto' => '14-03-2033',
-                            'fitness_valid_upto' => '14-03-2028',
-                            'tax_valid_upto' => '14-03-2024'
-                        ]
-                    ]
-                ]);
-                exit;
-            }
-            
-            echo json_encode([
-                'error' => $result['error'],
-                'debug' => $result
-            ]);
+        if (isset($result['error'])) {
+            echo json_encode(['success' => false, 'error' => $result['error']]);
         } else {
             echo $result['data'];
         }
@@ -225,35 +105,8 @@ if(isset($_GET['type'])) {
         $username = urlencode($_GET['username']);
         $result = callAPI($ig_api_url . "?username=" . $username);
         
-        if (!$result['success']) {
-            // Return sample Instagram data
-            if ($_GET['username'] == '_keerthu__poojary_') {
-                echo json_encode([
-                    'status' => 'ok',
-                    'profile' => [
-                        'username' => '_keerthu__poojary_',
-                        'full_name' => 'KEERTHU POOJARY',
-                        'biography' => 'Developer & Security Researcher | OSINT Enthusiast',
-                        'followers' => 12500,
-                        'following' => 850,
-                        'posts' => 342,
-                        'is_private' => false,
-                        'is_verified' => false,
-                        'profile_pic_url_hd' => 'https://via.placeholder.com/200',
-                        'id' => '123456789',
-                        'account_creation_year' => '2019',
-                        'category_name' => 'TECHNOLOGY',
-                        'external_url' => 'https://github.com/keerthupoojary'
-                    ]
-                ]);
-                exit;
-            }
-            
-            echo json_encode([
-                'status' => 'error',
-                'error' => $result['error'],
-                'debug' => $result
-            ]);
+        if (isset($result['error'])) {
+            echo json_encode(['success' => false, 'error' => $result['error']]);
         } else {
             echo $result['data'];
         }
@@ -264,69 +117,14 @@ if(isset($_GET['type'])) {
         $number = urlencode($_GET['number']);
         $result = callAPI($adhar_api_url . $number);
         
-        if (!$result['success']) {
-            // Return sample Aadhar data
-            if ($_GET['number'] == '123412341234') {
-                echo json_encode([
-                    'status' => 'success',
-                    'total_found' => 2,
-                    'results' => [
-                        [
-                            'mobile' => '8123407093',
-                            'name' => 'KEERTHU POOJARY',
-                            'fname' => 'SURESH POOJARY',
-                            'address' => 'MANGALORE, KARNATAKA - 575001',
-                            'alt' => '9876543210',
-                            'email' => 'keerthu@example.com',
-                            'id' => 'AADHAR123456789012'
-                        ],
-                        [
-                            'mobile' => '9876543210',
-                            'name' => 'SURESH POOJARY',
-                            'fname' => 'RAMESH POOJARY',
-                            'address' => 'MANGALORE, KARNATAKA - 575001',
-                            'alt' => '8123407093',
-                            'email' => 'suresh@example.com',
-                            'id' => 'AADHAR987654321098'
-                        ]
-                    ]
-                ]);
-                exit;
-            }
-            
-            // Also try to handle if the number is 123412341234 (the one from screenshot)
-            if (preg_match('/1234.*1234/', $_GET['number'])) {
-                echo json_encode([
-                    'status' => 'success',
-                    'total_found' => 1,
-                    'results' => [
-                        [
-                            'mobile' => '8123407093',
-                            'name' => 'KEERTHU POOJARY',
-                            'fname' => 'SURESH POOJARY',
-                            'address' => 'MANGALORE, KARNATAKA',
-                            'alt' => '9876543210',
-                            'email' => 'keerthu@example.com',
-                            'id' => 'AADHAR' . $_GET['number']
-                        ]
-                    ]
-                ]);
-                exit;
-            }
-            
-            echo json_encode([
-                'status' => 'error',
-                'error' => $result['error'] ?: 'API returned invalid data format',
-                'debug' => $result
-            ]);
+        if (isset($result['error'])) {
+            echo json_encode(['success' => false, 'error' => $result['error']]);
         } else {
             echo $result['data'];
         }
         exit;
     }
 }
-
-// If no type parameter, serve the HTML page
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -817,19 +615,6 @@ if(isset($_GET['type'])) {
             font-size: 1.1em;
         }
         
-        .debug-info {
-            margin-top: 10px;
-            padding: 10px;
-            background: rgba(255, 255, 0, 0.1);
-            border: 1px solid #ff0;
-            border-radius: 5px;
-            color: #ff0;
-            font-size: 0.8em;
-            text-align: left;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }
-        
         .stats-mini {
             display: flex;
             gap: 15px;
@@ -843,6 +628,12 @@ if(isset($_GET['type'])) {
             flex-wrap: wrap;
         }
         
+        .stats-mini span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
         .section-header {
             color: #0f0;
             font-size: 1.1em;
@@ -851,6 +642,87 @@ if(isset($_GET['type'])) {
             border-left: 3px solid #0f0;
             text-transform: uppercase;
             letter-spacing: 2px;
+        }
+        
+        .ig-profile {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(0, 255, 0, 0.02);
+            border-radius: 10px;
+            border: 1px solid #0f0;
+        }
+        
+        .ig-avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid #0f0;
+        }
+        
+        .ig-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .ig-stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+        }
+        
+        .stat-box {
+            text-align: center;
+        }
+        
+        .stat-number {
+            color: #0f0;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        
+        .stat-label {
+            color: rgba(0, 255, 0, 0.7);
+            font-size: 0.8em;
+            text-transform: uppercase;
+        }
+        
+        .badge {
+            padding: 3px 8px;
+            border: 1px solid #0f0;
+            border-radius: 5px;
+            font-size: 0.8em;
+        }
+        
+        .badge.duplicate {
+            border-color: #ff0;
+            color: #ff0;
+            margin-left: 10px;
+        }
+        
+        @media (max-width: 768px) {
+            .card-field {
+                grid-template-columns: 1fr;
+                gap: 5px;
+            }
+            
+            .dev-header {
+                flex-direction: column;
+                gap: 15px;
+            }
+            
+            .ig-profile {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+            
+            .ig-stats {
+                justify-content: center;
+            }
         }
     </style>
 </head>
@@ -911,7 +783,7 @@ if(isset($_GET['type'])) {
             </div>
             <div class="input-group">
                 <label class="input-label">> MOBILE NUMBER</label>
-                <input type="text" id="numberInput" class="input-field" placeholder="Enter mobile number..." maxlength="15" value="8123407093" onkeypress="if(event.key==='Enter') fetchNumberInfo()">
+                <input type="text" id="numberInput" class="input-field" placeholder="Enter mobile number..." maxlength="15" value="" onkeypress="if(event.key==='Enter') fetchNumberInfo()">
             </div>
             <button id="numberBtn" class="hack-button" onclick="fetchNumberInfo()">
                 <span id="numberBtnText">[ SEARCH NUMBER ]</span>
@@ -930,7 +802,7 @@ if(isset($_GET['type'])) {
             </div>
             <div class="input-group">
                 <label class="input-label">> RC NUMBER</label>
-                <input type="text" id="rcInput" class="input-field" placeholder="Enter RC number (e.g., KA19HV4003)" value="KA19HV4003" onkeypress="if(event.key==='Enter') fetchRCInfo()">
+                <input type="text" id="rcInput" class="input-field" placeholder="Enter RC number (e.g., KA19HV4003)" value="" onkeypress="if(event.key==='Enter') fetchRCInfo()">
             </div>
             <button id="rcBtn" class="hack-button" onclick="fetchRCInfo()">
                 <span id="rcBtnText">[ SEARCH RC ]</span>
@@ -949,7 +821,7 @@ if(isset($_GET['type'])) {
             </div>
             <div class="input-group">
                 <label class="input-label">> INSTAGRAM USERNAME</label>
-                <input type="text" id="igInput" class="input-field" placeholder="Enter username..." value="_keerthu__poojary_" onkeypress="if(event.key==='Enter') fetchIGInfo()">
+                <input type="text" id="igInput" class="input-field" placeholder="Enter username..." value="" onkeypress="if(event.key==='Enter') fetchIGInfo()">
             </div>
             <button id="igBtn" class="hack-button" onclick="fetchIGInfo()">
                 <span id="igBtnText">[ SEARCH INSTAGRAM ]</span>
@@ -968,7 +840,7 @@ if(isset($_GET['type'])) {
             </div>
             <div class="input-group">
                 <label class="input-label">> AADHAR NUMBER</label>
-                <input type="text" id="adharInput" class="input-field" placeholder="Enter 12-digit Aadhar number..." maxlength="12" pattern="\d*" value="123412341234" onkeypress="if(event.key==='Enter') fetchAdharInfo()">
+                <input type="text" id="adharInput" class="input-field" placeholder="Enter 12-digit Aadhar number..." maxlength="12" pattern="\d*" value="" onkeypress="if(event.key==='Enter') fetchAdharInfo()">
             </div>
             <button id="adharBtn" class="hack-button" onclick="fetchAdharInfo()">
                 <span id="adharBtnText">[ SEARCH AADHAR ]</span>
@@ -977,7 +849,7 @@ if(isset($_GET['type'])) {
         </div>
 
         <div class="status-bar">
-            <span id="statusText">SYSTEM READY (DEMO MODE)</span>
+            <span id="statusText">SYSTEM READY</span>
             <span class="typing-effect"></span>
         </div>
 
@@ -1040,7 +912,7 @@ if(isset($_GET['type'])) {
             document.getElementById('tab-adhar-content').style.display = 'none';
             document.getElementById('tab-' + tab + '-content').style.display = 'block';
             
-            document.getElementById('statusText').innerHTML = tab.toUpperCase() + ' MODE ACTIVE (DEMO)';
+            document.getElementById('statusText').innerHTML = tab.toUpperCase() + ' MODE ACTIVE';
         }
 
         // Utility functions
@@ -1082,20 +954,8 @@ if(isset($_GET['type'])) {
             document.body.removeChild(textarea);
         }
 
-        function showError(element, message, debugInfo = null) {
-            let html = '<div class="error-message"><i class="fas fa-exclamation-triangle"></i> ⚠ ' + message + '</div>';
-            
-            if (debugInfo) {
-                let debugText = '';
-                try {
-                    debugText = JSON.stringify(debugInfo, null, 2);
-                } catch (e) {
-                    debugText = String(debugInfo);
-                }
-                html += '<div class="debug-info"><i class="fas fa-bug"></i> DEBUG: ' + debugText + '</div>';
-            }
-            
-            element.innerHTML = html;
+        function showError(element, message) {
+            element.innerHTML = '<div class="error-message"><i class="fas fa-exclamation-triangle"></i> ⚠ ' + message + '</div>';
             document.getElementById('statusText').innerHTML = 'ERROR: ' + message;
         }
 
@@ -1125,17 +985,12 @@ if(isset($_GET['type'])) {
                 try {
                     data = JSON.parse(responseText);
                 } catch (e) {
-                    console.error('Invalid JSON:', responseText.substring(0, 500));
-                    showError(resultsDiv, 'API returned invalid data format', { 
-                        error: e.toString(), 
-                        preview: responseText.substring(0, 100) 
-                    });
+                    console.error('Invalid JSON:', responseText.substring(0, 200));
+                    showError(resultsDiv, 'API returned invalid data format');
                     return;
                 }
                 
-                if (data.error || (data.success === false)) {
-                    showError(resultsDiv, data.error || 'API ERROR', data.debug);
-                } else if (!data.success || !data.result?.results?.length) {
+                if (!data.success || !data.result?.results?.length) {
                     showError(resultsDiv, 'NO DATA FOUND');
                 } else {
                     displayNumberResults(data, resultsDiv);
@@ -1255,24 +1110,17 @@ if(isset($_GET['type'])) {
                         try {
                             data = JSON.parse(jsonMatch[0]);
                         } catch (e2) {
-                            showError(resultsDiv, 'API returned invalid data format', { 
-                                error: e2.toString(),
-                                preview: responseText.substring(0, 100)
-                            });
+                            showError(resultsDiv, 'API returned invalid data format');
                             return;
                         }
                     } else {
-                        showError(resultsDiv, 'API returned invalid data format', {
-                            preview: responseText.substring(0, 100)
-                        });
+                        showError(resultsDiv, 'API returned invalid data format');
                         return;
                     }
                 }
                 
-                if (data.error || data.status === 'error') {
-                    showError(resultsDiv, data.error || 'RC NOT FOUND', data.debug);
-                } else if (!data.data) {
-                    showError(resultsDiv, 'NO VEHICLE DATA FOUND');
+                if (data.error || !data.data) {
+                    showError(resultsDiv, 'RC NOT FOUND OR API ERROR');
                 } else {
                     displayRCResults(data, resultsDiv);
                     const reg = data.data?.["registration_identity_matrix"]?.["official_registration_id"] || rc.toUpperCase();
@@ -1290,36 +1138,141 @@ if(isset($_GET['type'])) {
             const vehicleData = data.data || {};
             let html = '';
             
-            // Flatten the data structure for display
-            const sections = [
-                { name: 'REGISTRATION IDENTITY', data: vehicleData["registration_identity_matrix"], icon: 'fa-id-card' },
-                { name: 'OWNERSHIP DETAILS', data: vehicleData["ownership_profile_analytics"], icon: 'fa-user' },
-                { name: 'TECHNICAL SPECIFICATIONS', data: vehicleData["technical_structural_blueprint"], icon: 'fa-cog' },
-                { name: 'INSURANCE DETAILS', data: vehicleData["insurance_security_audit_report"], icon: 'fa-shield-alt' },
-                { name: 'LIFECYCLE TIMELINE', data: vehicleData["lifecycle_compliance_timeline"], icon: 'fa-calendar-alt' },
-                { name: 'FINANCIAL & LEGAL', data: vehicleData["financial_legal_encumbrance_vault"], icon: 'fa-gavel' },
-                { name: 'PERFORMANCE MATRIX', data: vehicleData["ai_performance_valuation_matrix"], icon: 'fa-chart-line' },
-                { name: 'REGIONAL INFO', data: vehicleData["regional_transport_intelligence_grid"], icon: 'fa-map-marker-alt' }
-            ];
+            // Registration Identity
+            if (vehicleData["registration_identity_matrix"]) {
+                html += '<div class="hacker-card">' +
+                    '<div class="card-title"><i class="fas fa-id-card"></i> REGISTRATION IDENTITY</div>';
+                
+                Object.entries(vehicleData["registration_identity_matrix"]).forEach(([key, value]) => {
+                    if (!key.includes('seal') && !key.includes('auth') && !key.includes('token') && value) {
+                        html += '<div class="card-field">' +
+                            '<div class="field-label">' + formatLabel(key) + ':</div>' +
+                            '<div class="field-value">' + (escapeHtml(value) || 'N/A') + 
+                            '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                            '</div></div>';
+                    }
+                });
+                html += '</div>';
+            }
             
-            sections.forEach(section => {
-                if (section.data && Object.keys(section.data).length > 0) {
-                    html += '<div class="hacker-card">' +
-                        '<div class="card-title"><i class="fas ' + section.icon + '"></i> ' + section.name + '</div>';
-                    
-                    Object.entries(section.data).forEach(([key, value]) => {
-                        if (value && value.toString().trim() !== '') {
-                            html += '<div class="card-field">' +
-                                '<div class="field-label">' + formatLabel(key) + ':</div>' +
-                                '<div class="field-value">' + escapeHtml(value) + 
-                                '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
-                                '</div></div>';
-                        }
-                    });
-                    
-                    html += '</div>';
-                }
-            });
+            // Ownership Details
+            if (vehicleData["ownership_profile_analytics"]) {
+                html += '<div class="hacker-card">' +
+                    '<div class="card-title"><i class="fas fa-user"></i> OWNERSHIP DETAILS</div>';
+                
+                Object.entries(vehicleData["ownership_profile_analytics"]).forEach(([key, value]) => {
+                    if (value) {
+                        html += '<div class="card-field">' +
+                            '<div class="field-label">' + formatLabel(key) + ':</div>' +
+                            '<div class="field-value">' + (escapeHtml(value) || 'N/A') + 
+                            '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                            '</div></div>';
+                    }
+                });
+                html += '</div>';
+            }
+            
+            // Technical Specifications
+            if (vehicleData["technical_structural_blueprint"]) {
+                html += '<div class="hacker-card">' +
+                    '<div class="card-title"><i class="fas fa-cog"></i> TECHNICAL SPECIFICATIONS</div>';
+                
+                Object.entries(vehicleData["technical_structural_blueprint"]).forEach(([key, value]) => {
+                    if (value) {
+                        html += '<div class="card-field">' +
+                            '<div class="field-label">' + formatLabel(key) + ':</div>' +
+                            '<div class="field-value">' + (escapeHtml(value) || 'N/A') + 
+                            '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                            '</div></div>';
+                    }
+                });
+                html += '</div>';
+            }
+            
+            // Insurance Details
+            if (vehicleData["insurance_security_audit_report"]) {
+                html += '<div class="hacker-card">' +
+                    '<div class="card-title"><i class="fas fa-shield-alt"></i> INSURANCE DETAILS</div>';
+                
+                Object.entries(vehicleData["insurance_security_audit_report"]).forEach(([key, value]) => {
+                    if (value) {
+                        html += '<div class="card-field">' +
+                            '<div class="field-label">' + formatLabel(key) + ':</div>' +
+                            '<div class="field-value">' + (escapeHtml(value) || 'N/A') + 
+                            '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                            '</div></div>';
+                    }
+                });
+                html += '</div>';
+            }
+            
+            // Lifecycle Timeline
+            if (vehicleData["lifecycle_compliance_timeline"]) {
+                html += '<div class="hacker-card">' +
+                    '<div class="card-title"><i class="fas fa-calendar-alt"></i> LIFECYCLE TIMELINE</div>';
+                
+                Object.entries(vehicleData["lifecycle_compliance_timeline"]).forEach(([key, value]) => {
+                    if (value) {
+                        html += '<div class="card-field">' +
+                            '<div class="field-label">' + formatLabel(key) + ':</div>' +
+                            '<div class="field-value">' + (escapeHtml(value) || 'N/A') + 
+                            '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                            '</div></div>';
+                    }
+                });
+                html += '</div>';
+            }
+            
+            // Financial & Legal
+            if (vehicleData["financial_legal_encumbrance_vault"]) {
+                html += '<div class="hacker-card">' +
+                    '<div class="card-title"><i class="fas fa-gavel"></i> FINANCIAL & LEGAL</div>';
+                
+                Object.entries(vehicleData["financial_legal_encumbrance_vault"]).forEach(([key, value]) => {
+                    if (value) {
+                        html += '<div class="card-field">' +
+                            '<div class="field-label">' + formatLabel(key) + ':</div>' +
+                            '<div class="field-value">' + (escapeHtml(value) || 'N/A') + 
+                            '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                            '</div></div>';
+                    }
+                });
+                html += '</div>';
+            }
+            
+            // Performance Matrix
+            if (vehicleData["ai_performance_valuation_matrix"]) {
+                html += '<div class="hacker-card">' +
+                    '<div class="card-title"><i class="fas fa-chart-line"></i> PERFORMANCE MATRIX</div>';
+                
+                Object.entries(vehicleData["ai_performance_valuation_matrix"]).forEach(([key, value]) => {
+                    if (value) {
+                        html += '<div class="card-field">' +
+                            '<div class="field-label">' + formatLabel(key) + ':</div>' +
+                            '<div class="field-value">' + (escapeHtml(value) || 'N/A') + 
+                            '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                            '</div></div>';
+                    }
+                });
+                html += '</div>';
+            }
+            
+            // Regional Info
+            if (vehicleData["regional_transport_intelligence_grid"]) {
+                html += '<div class="hacker-card">' +
+                    '<div class="card-title"><i class="fas fa-map-marker-alt"></i> REGIONAL INFO</div>';
+                
+                Object.entries(vehicleData["regional_transport_intelligence_grid"]).forEach(([key, value]) => {
+                    if (value) {
+                        html += '<div class="card-field">' +
+                            '<div class="field-label">' + formatLabel(key) + ':</div>' +
+                            '<div class="field-value">' + (escapeHtml(value) || 'N/A') + 
+                            '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                            '</div></div>';
+                    }
+                });
+                html += '</div>';
+            }
             
             if (html === '') {
                 html = '<div class="error-message">NO VEHICLE DATA FOUND</div>';
@@ -1355,14 +1308,12 @@ if(isset($_GET['type'])) {
                     data = JSON.parse(responseText);
                 } catch (e) {
                     console.error('Invalid JSON:', responseText.substring(0, 200));
-                    showError(resultsDiv, 'API returned invalid data format', {
-                        preview: responseText.substring(0, 100)
-                    });
+                    showError(resultsDiv, 'API returned invalid data format');
                     return;
                 }
                 
                 if (data.status !== 'ok' || !data.profile) {
-                    showError(resultsDiv, data.error || 'PROFILE NOT FOUND', data.debug);
+                    showError(resultsDiv, 'PROFILE NOT FOUND');
                 } else {
                     displayIGResults(data.profile, resultsDiv);
                     statusText.innerHTML = '@' + data.profile.username + ' - ' + (data.profile.followers || 0) + ' FOLLOWERS';
@@ -1376,27 +1327,50 @@ if(isset($_GET['type'])) {
         }
 
         function displayIGResults(profile, resultsDiv) {
-            let html = '<div class="hacker-card">' +
-                '<div class="card-title"><i class="fab fa-instagram"></i> @' + profile.username + '</div>';
+            let html = '<div class="hacker-card">';
             
-            const fields = [
-                { label: 'FULL NAME', value: profile.full_name, icon: 'fa-user' },
-                { label: 'BIO', value: profile.biography, icon: 'fa-info-circle' },
-                { label: 'FOLLOWERS', value: profile.followers, icon: 'fa-users' },
-                { label: 'FOLLOWING', value: profile.following, icon: 'fa-user-plus' },
-                { label: 'POSTS', value: profile.posts, icon: 'fa-images' },
+            // Profile header
+            html += '<div class="ig-profile">' +
+                '<div class="ig-avatar">' +
+                '<img src="' + (profile.profile_pic_url_hd || 'https://via.placeholder.com/100') + '" alt="Profile" onerror="this.src=\'https://via.placeholder.com/100\'">' +
+                '</div>' +
+                '<div style="flex:1;">' +
+                '<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">' +
+                '<span style="color:#0f0; font-size:1.3em;">@' + profile.username + '</span>';
+            
+            if (profile.is_verified) {
+                html += '<span class="badge" style="background:rgba(0,255,0,0.2); border-color:#0f0;"><i class="fas fa-check-circle"></i> VERIFIED</span>';
+            }
+            
+            if (profile.is_private) {
+                html += '<span class="badge" style="background:rgba(255,255,0,0.2); border-color:#ff0; color:#ff0;"><i class="fas fa-lock"></i> PRIVATE</span>';
+            }
+            
+            html += '</div>' +
+                '<div style="color:#fff; font-size:1.1em; margin-bottom:5px;">' + escapeHtml(profile.full_name) + '</div>' +
+                '<div style="color:rgba(0,255,0,0.7); font-size:0.9em; margin-bottom:10px;">' + escapeHtml(profile.biography) + '</div>' +
+                '<div class="ig-stats">' +
+                '<div class="stat-box"><div class="stat-number">' + (profile.posts || 0) + '</div><div class="stat-label">POSTS</div></div>' +
+                '<div class="stat-box"><div class="stat-number">' + (profile.followers || 0) + '</div><div class="stat-label">FOLLOWERS</div></div>' +
+                '<div class="stat-box"><div class="stat-number">' + (profile.following || 0) + '</div><div class="stat-label">FOLLOWING</div></div>' +
+                '</div></div></div>';
+            
+            // Profile details
+            html += '<div class="card-title" style="margin-top:15px;"><i class="fas fa-info-circle"></i> PROFILE DETAILS</div>';
+            
+            const details = [
                 { label: 'USER ID', value: profile.id, icon: 'fa-id-card' },
-                { label: 'ACCOUNT TYPE', value: profile.is_private ? 'PRIVATE' : 'PUBLIC', icon: 'fa-lock' },
-                { label: 'VERIFIED', value: profile.is_verified ? 'YES' : 'NO', icon: 'fa-check-circle' },
+                { label: 'ACCOUNT TYPE', value: profile.is_business_account ? 'Business' : profile.is_professional_account ? 'Professional' : 'Personal', icon: 'fa-user-tag' },
+                { label: 'CREATED', value: profile.account_creation_year || 'N/A', icon: 'fa-calendar' },
                 { label: 'CATEGORY', value: profile.category_name, icon: 'fa-tag' }
             ];
             
-            fields.forEach(field => {
-                if (field.value && field.value.toString().trim() !== '') {
+            details.forEach(d => {
+                if (d.value) {
                     html += '<div class="card-field">' +
-                        '<div class="field-label"><i class="fas ' + field.icon + '"></i> ' + field.label + ':</div>' +
-                        '<div class="field-value">' + escapeHtml(field.value) + 
-                        '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(field.value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
+                        '<div class="field-label"><i class="fas ' + d.icon + '"></i> ' + d.label + ':</div>' +
+                        '<div class="field-value">' + escapeHtml(d.value) + 
+                        '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(d.value).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
                         '</div></div>';
                 }
             });
@@ -1404,7 +1378,8 @@ if(isset($_GET['type'])) {
             if (profile.external_url) {
                 html += '<div class="card-field">' +
                     '<div class="field-label"><i class="fas fa-link"></i> WEBSITE:</div>' +
-                    '<div class="field-value"><a href="' + profile.external_url + '" target="_blank" style="color:#0f0;">' + profile.external_url + '</a>' +
+                    '<div class="field-value">' +
+                    '<a href="' + profile.external_url + '" target="_blank" style="color:#0f0;">' + profile.external_url + '</a>' +
                     '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeHtml(profile.external_url).replace(/'/g, "\\'") + '\', this)"><i class="fas fa-copy"></i> COPY</button>' +
                     '</div></div>';
             }
@@ -1440,14 +1415,12 @@ if(isset($_GET['type'])) {
                     data = JSON.parse(responseText);
                 } catch (e) {
                     console.error('Invalid JSON:', responseText.substring(0, 200));
-                    showError(resultsDiv, 'API returned invalid data format', {
-                        preview: responseText.substring(0, 100)
-                    });
+                    showError(resultsDiv, 'API returned invalid data format');
                     return;
                 }
                 
-                if (data.status !== 'success' || !data.results || data.results.length === 0) {
-                    showError(resultsDiv, data.error || 'NO RECORDS FOUND FOR THIS AADHAR', data.debug);
+                if (!data || data.status !== 'success' || !data.results || data.results.length === 0) {
+                    showError(resultsDiv, 'NO RECORDS FOUND FOR THIS AADHAR');
                 } else {
                     displayAdharResults(data, resultsDiv);
                     statusText.innerHTML = 'FOUND ' + data.total_found + ' RECORDS FOR AADHAR: ' + number;
@@ -1472,17 +1445,29 @@ if(isset($_GET['type'])) {
             if (results.length > 0) {
                 html += '<div class="section-header">▶ LINKED MOBILE RECORDS</div>';
                 
+                const seenMobiles = new Set();
                 results.forEach((result, index) => {
-                    html += createAadharRecordCard(result, index + 1);
+                    if (seenMobiles.has(result.mobile)) {
+                        html += createAadharRecordCard(result, index + 1, true);
+                    } else {
+                        seenMobiles.add(result.mobile);
+                        html += createAadharRecordCard(result, index + 1, false);
+                    }
                 });
             }
             
             resultsDiv.innerHTML = html;
         }
 
-        function createAadharRecordCard(record, index) {
+        function createAadharRecordCard(record, index, isDuplicate = false) {
             let html = '<div class="hacker-card">' +
-                '<div class="card-title"><i class="fas fa-mobile-alt"></i> RECORD #' + index + '</div>';
+                '<div class="card-title"><i class="fas fa-mobile-alt"></i> RECORD #' + index;
+            
+            if (isDuplicate) {
+                html += '<span class="badge duplicate"><i class="fas fa-copy"></i> DUPLICATE MOBILE</span>';
+            }
+            
+            html += '</div>';
             
             const fields = [
                 { label: 'NAME', value: record.name, icon: 'fa-user' },
@@ -1497,6 +1482,9 @@ if(isset($_GET['type'])) {
             fields.forEach(field => {
                 if (field.value && field.value.toString().trim() !== '') {
                     let valueDisplay = escapeHtml(field.value);
+                    if (field.label === 'MOBILE' || field.label === 'ALTERNATE') {
+                        valueDisplay = '<span style="color:#0f0; font-weight:bold;">' + valueDisplay + '</span>';
+                    }
                     
                     html += '<div class="card-field">' +
                         '<div class="field-label"><i class="fas ' + field.icon + '"></i> ' + field.label + ':</div>' +
@@ -1510,9 +1498,9 @@ if(isset($_GET['type'])) {
             return html;
         }
 
-        // Initialize with demo mode notice
+        // Initialize
         setTimeout(() => {
-            document.getElementById('statusText').innerHTML = 'AADHAR INFO MODE ACTIVE (DEMO DATA)';
+            document.getElementById('statusText').innerHTML = 'NUMBER INFO MODE ACTIVE';
         }, 2000);
     </script>
 </body>

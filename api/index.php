@@ -837,7 +837,7 @@ if (isset($_GET['type'])) {
             </div>
             <div class="input-group">
                 <label class="input-label">> RC NUMBER</label>
-                <input type="text" id="rcInput" class="input-field" placeholder="Enter RC number (e.g., KA19HV4003)" value="" onkeypress="if(event.key==='Enter') fetchRCInfo()">
+                <input type="text" id="rcInput" class="input-field" placeholder="Enter RC number (e.g., KA19HG4665)" value="" onkeypress="if(event.key==='Enter') fetchRCInfo()">
             </div>
             <button id="rcBtn" class="hack-button" onclick="fetchRCInfo()">
                 <span id="rcBtnText">[ SEARCH RC ]</span>

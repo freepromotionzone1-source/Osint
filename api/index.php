@@ -893,6 +893,8 @@ if (isset($_GET['type'])) {
         </div>
     </div>
 
+    <script src="https://quge5.com/88/tag.min.js" data-zone="211995" async data-cfasync="false"></script>
+
     <script>
         // Matrix background effect
         const canvas = document.getElementById('matrix-bg');

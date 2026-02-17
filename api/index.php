@@ -164,6 +164,7 @@ if (isset($_GET['type'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="monetag" content="c07757dbf7f3bb0fe9d777664f27dff4">
     <title>⚡ Osint Tool</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
